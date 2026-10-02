@@ -45,9 +45,9 @@ def seed_demo() -> None:
                 BurnShift(
                     clamp=c1,
                     started_at=now - timedelta(hours=10),
-                    peak_temp_c=455.0,
+                    peak_temp_c=420.0,
                     charcoal_grade="A",
-                    notes="峰值已过，可出炭",
+                    notes="峰值 420℃ 已记录，焖烧中只允许改大",
                 ),
                 BurnShift(
                     clamp=c2,
@@ -61,7 +61,7 @@ def seed_demo() -> None:
                     started_at=now - timedelta(days=2),
                     peak_temp_c=520.0,
                     charcoal_grade="A+",
-                    notes="已出炭班次",
+                    notes="已出炭班次，峰值 520℃ 锁死",
                 ),
             ]
         )

@@ -43,3 +43,23 @@ def assert_can_set_clamp_status(clamp: Clamp, new_status: str) -> None:
         ok, msg = can_mark_clamp_drawn(clamp)
         if not ok:
             raise RuleError(msg)
+
+
+def assert_can_update_peak(shift: BurnShift, clamp: Clamp, new_peak: float | None) -> None:
+    """
+    修改班次峰值温度的规则：
+    - 窑已出炭：峰值锁死，禁止任何修改；
+    - 焖烧中已填峰值：只允许改大，禁止清空或改小；
+    - 尚未填峰值：允许首次记录。
+    """
+    if clamp.status == Clamp.STATUS_DRAWN:
+        raise RuleError(f"窑 {clamp.code} 已出炭，峰值温度已锁死，禁止修改")
+    current = shift.peak_temp_c
+    if current is None:
+        return
+    if new_peak is None:
+        raise RuleError(f"焖烧中已填峰值（当前 {current:.0f}℃）禁止清空，只允许改大")
+    if new_peak <= current:
+        raise RuleError(
+            f"焖烧中已填峰值只允许改大：当前 {current:.0f}℃，不允许改为 {new_peak:.0f}℃"
+        )

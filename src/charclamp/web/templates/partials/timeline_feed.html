@@ -31,6 +31,32 @@
           <strong class="badge badge-{{ shift.clamp.status }}">{{ status_labels.get(shift.clamp.status, shift.clamp.status) }}</strong>
         </div>
       </div>
+      <div class="peak-editor">
+        {% if shift.clamp.status == 'drawn' %}
+        <p class="peak-lock">🔒 已出炭，峰值锁死，禁止修改</p>
+        {% else %}
+        <form class="peak-form" method="post" action="/shifts/{{ shift.id }}/peak">
+          <input type="hidden" name="expected_peak" value="{% if shift.peak_temp_c is not none %}{{ shift.peak_temp_c }}{% endif %}" />
+          {% if active_clamp_id %}<input type="hidden" name="active_clamp_id" value="{{ active_clamp_id }}" />{% endif %}
+          <input
+            type="number"
+            name="peak_temp_c"
+            step="0.1"
+            required
+            {% if shift.peak_temp_c is not none %}
+            min="{{ shift.peak_temp_c + 0.1 }}"
+            placeholder="> {{ '%.0f'|format(shift.peak_temp_c) }}℃"
+            {% else %}
+            placeholder="首次记录峰值 ℃"
+            {% endif %}
+          />
+          <button type="submit" class="btn ghost btn-sm">{% if shift.peak_temp_c is not none %}改大峰值{% else %}记录峰值{% endif %}</button>
+        </form>
+        <p class="hint peak-hint">
+          {% if shift.peak_temp_c is not none %}已填峰值只允许改大，禁止清空或改小。{% else %}尚未记录峰值，可首次填写；填写后只允许改大。{% endif %}
+        </p>
+        {% endif %}
+      </div>
       {% if shift.notes %}
       <p class="timeline-note">{{ shift.notes }}</p>
       {% endif %}
