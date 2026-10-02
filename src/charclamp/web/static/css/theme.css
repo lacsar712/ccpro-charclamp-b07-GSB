@@ -272,6 +272,32 @@ body {
 
 .metric strong { font-size: 1.05rem; }
 
+.metric-peak { min-width: 220px; }
+
+.peak-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.peak-form input[type="number"] {
+  width: 110px;
+  padding: 6px 10px;
+}
+
+.peak-save {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
+
+.peak-state {
+  font-style: normal;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.peak-locked { color: #a8a29e; }
+
 .timeline-note {
   margin: 12px 0 0;
   padding-top: 10px;

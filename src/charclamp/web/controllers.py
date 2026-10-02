@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from typing import Any
 
@@ -7,11 +8,16 @@ from litestar import Controller, MediaType, Request, get, post
 from litestar.enums import RequestEncodingType
 from litestar.params import Body
 from litestar.response import Redirect, Template
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import selectinload
 
 from charclamp.domain.models import BurnShift, Clamp, User
-from charclamp.domain.rules import RuleError, assert_can_set_clamp_status, can_mark_clamp_drawn
+from charclamp.domain.rules import (
+    RuleError,
+    assert_can_set_clamp_status,
+    assert_can_update_peak,
+    can_mark_clamp_drawn,
+)
 from charclamp.infra.db import SessionLocal
 from charclamp.infra.security import verify_password
 
@@ -45,6 +51,19 @@ def _parse_optional_int(raw: str | None) -> int | None:
         return int(raw)
     except (TypeError, ValueError):
         return None
+
+
+def _parse_optional_float(raw: Any) -> float | None:
+    """解析可空浮点输入；空串/None -> None，非法数字抛 ValueError。"""
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if text == "":
+        return None
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"非有限数值：{text}")
+    return value
 
 
 async def _load_timeline_context(clamp_id: int | None = None) -> dict[str, Any]:
@@ -225,6 +244,86 @@ class ShiftController(Controller):
         _set_flash(request, "焖烧班次已登记", "ok")
         return Redirect(f"/?clamp_id={clamp_id}")
 
+    @post("/{shift_id:int}/peak")
+    async def set_peak(
+        self,
+        request: Request,
+        shift_id: int,
+        data: dict[str, Any] = Body(media_type=RequestEncodingType.URL_ENCODED),
+    ) -> Redirect:
+        if not request.user:
+            return Redirect("/login")
+        try:
+            new_peak = _parse_optional_float(data.get("peak_temp_c"))
+        except (TypeError, ValueError):
+            _set_flash(request, "峰值温度必须是有效数字", "error")
+            return Redirect("/")
+        # 表单隐藏域 expected_peak 是乐观并发令牌：提交时的期望值必须等于库中现值，
+        # 两人同时改同一班次时只许一版生效。缺失该字段的裸请求退化为仅校验单调递增。
+        enforce_expected = "expected_peak" in data
+        try:
+            expected_peak = _parse_optional_float(data.get("expected_peak"))
+        except (TypeError, ValueError):
+            _set_flash(request, "峰值校验令牌无效，请刷新页面后重试", "error")
+            return Redirect("/")
+
+        # 第一段会话：读取现值做规则校验，给出准确的中文提示。
+        async with SessionLocal() as db:
+            row = (
+                await db.execute(
+                    select(BurnShift, Clamp)
+                    .join(Clamp, BurnShift.clamp_id == Clamp.id)
+                    .where(BurnShift.id == shift_id)
+                )
+            ).first()
+            if row is None:
+                _set_flash(request, "焖烧班次不存在", "error")
+                return Redirect("/")
+            shift, clamp = row
+            clamp_id = clamp.id
+            try:
+                assert_can_update_peak(
+                    clamp.status,
+                    shift.peak_temp_c,
+                    new_peak,
+                    expected_peak,
+                    enforce_expected=enforce_expected,
+                )
+            except RuleError as exc:
+                _set_flash(request, str(exc), "error")
+                return Redirect(f"/?clamp_id={clamp_id}")
+
+        # 第二段会话：原子守卫更新。期望值匹配 + 窑未出炭 + 单调递增全部写进
+        # 同一条 UPDATE 的 WHERE，由数据库在单行上原子判定——并发请求只许一版
+        # 生效，不存在“校验通过后被另一请求抢先”的 TOCTOU 窗口。
+        conditions = [
+            BurnShift.id == shift_id,
+            or_(BurnShift.peak_temp_c.is_(None), BurnShift.peak_temp_c < new_peak),
+            BurnShift.clamp_id.in_(
+                select(Clamp.id).where(Clamp.status != Clamp.STATUS_DRAWN)
+            ),
+        ]
+        if enforce_expected:
+            if expected_peak is None:
+                conditions.append(BurnShift.peak_temp_c.is_(None))
+            else:
+                conditions.append(BurnShift.peak_temp_c == expected_peak)
+        stmt = (
+            update(BurnShift)
+            .where(*conditions)
+            .values(peak_temp_c=new_peak)
+            .execution_options(synchronize_session=False)
+        )
+        async with SessionLocal() as db:
+            result = await db.execute(stmt)
+            if result.rowcount == 1:
+                await db.commit()
+                _set_flash(request, f"峰值温度已更新为 {new_peak:.0f}℃", "ok")
+            else:
+                await db.rollback()
+                _set_flash(request, "峰值温度刚被他人更新，请刷新页面后重试", "error")
+        return Redirect(f"/?clamp_id={clamp_id}")
+
 
 class ClampController(Controller):
     path = "/clamps"
@@ -245,6 +344,7 @@ class ClampController(Controller):
                 select(Clamp)
                 .where(Clamp.id == clamp_id)
                 .options(selectinload(Clamp.shifts))
+                .with_for_update()
             )
             clamp = result.scalar_one_or_none()
             if not clamp:

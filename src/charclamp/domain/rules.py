@@ -43,3 +43,33 @@ def assert_can_set_clamp_status(clamp: Clamp, new_status: str) -> None:
         ok, msg = can_mark_clamp_drawn(clamp)
         if not ok:
             raise RuleError(msg)
+
+
+def assert_can_update_peak(
+    clamp_status: str,
+    current_peak: float | None,
+    new_peak: float | None,
+    expected_peak: float | None,
+    enforce_expected: bool = True,
+) -> None:
+    """
+    峰值温度修改规则：
+    - 窑已出炭：峰值锁死，禁止任何修改；
+    - 并发只许一版生效：提交时的期望值必须等于库中当前值，否则视为冲突；
+    - 焖烧中已填峰值：只允许改大，禁止清空或改小；
+    - 未填峰值：允许首次登记。
+    """
+    if clamp_status == Clamp.STATUS_DRAWN:
+        raise RuleError("该窑已出炭，峰值温度已锁死，禁止修改")
+    if enforce_expected and expected_peak != current_peak:
+        if current_peak is None:
+            raise RuleError("峰值温度刚被他人填写，请刷新页面后重试")
+        raise RuleError(f"峰值温度刚被他人更新为 {current_peak:.0f}℃，请刷新页面后重试")
+    if current_peak is None:
+        if new_peak is None:
+            raise RuleError("尚未登记峰值温度，请先填写")
+        return
+    if new_peak is None:
+        raise RuleError("已填峰值禁止清空")
+    if new_peak <= current_peak:
+        raise RuleError(f"已填峰值只允许改大（当前 {current_peak:.0f}℃），禁止改小或保持不变")

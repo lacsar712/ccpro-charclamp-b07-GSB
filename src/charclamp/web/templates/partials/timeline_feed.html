@@ -18,9 +18,33 @@
         </time>
       </header>
       <div class="timeline-card-body">
-        <div class="metric">
+        <div class="metric metric-peak">
           <span>峰值</span>
           <strong>{% if shift.peak_temp_c is not none %}{{ '%.0f'|format(shift.peak_temp_c) }}℃{% else %}未测{% endif %}</strong>
+          {% if shift.clamp.status == 'drawn' %}
+          <em class="peak-state peak-locked">🔒 已出炭，峰值锁死</em>
+          {% else %}
+          <form class="peak-form" method="post" action="/shifts/{{ shift.id }}/peak">
+            <input
+              type="hidden"
+              name="expected_peak"
+              value="{{ shift.peak_temp_c if shift.peak_temp_c is not none else '' }}"
+            />
+            <input
+              type="number"
+              name="peak_temp_c"
+              step="0.1"
+              required
+              aria-label="峰值温度 ℃"
+              value="{{ shift.peak_temp_c if shift.peak_temp_c is not none else '' }}"
+              {% if shift.peak_temp_c is not none %}min="{{ shift.peak_temp_c }}"{% endif %}
+            />
+            <button type="submit" class="peak-save">保存</button>
+          </form>
+          <em class="peak-state">
+            {% if shift.peak_temp_c is not none %}已填峰值只允许改大，禁止清空或改小{% else %}未测，可登记峰值{% endif %}
+          </em>
+          {% endif %}
         </div>
         <div class="metric">
           <span>炭品</span>

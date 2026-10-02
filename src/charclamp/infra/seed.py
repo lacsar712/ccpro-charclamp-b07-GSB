@@ -45,7 +45,7 @@ def seed_demo() -> None:
                 BurnShift(
                     clamp=c1,
                     started_at=now - timedelta(hours=10),
-                    peak_temp_c=455.0,
+                    peak_temp_c=420.0,
                     charcoal_grade="A",
                     notes="峰值已过，可出炭",
                 ),
